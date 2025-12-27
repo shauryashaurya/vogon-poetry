@@ -25,13 +25,9 @@ _With my blurglecruncheon, see if I don't!_
 #### &nbsp;&nbsp;&nbsp;&nbsp;Data Engineering                              
 # **VOGON POETRY**                          
                           
-concepts like zero-copy-columnar-distributed-vectorized etc. that sound like Vogon Poetry to data engineering teams trying to modernize their game...                                         
+concepts like zero-copy-columnar-layout-distributed-vectorized etc. that sound like Vogon Poetry to data engineering teams trying to modernize their game...                                         
                                        
-                                                           
-<html>                                                          
-	<img src="./images/vogon-poetry-v02.png" width="90%" align="center" alt="Vogon Poetry - Zero Copy data processing over Columnar layouts , © Shaurya Agarwal" />                                                          
-</html>                                   
-                                       
+                                                                                        
                                     
 # Refs:
 * [Vogons](https://www.bbc.co.uk/cult/hitchhikers/guide/vogon.shtml) and [Vogon Poetry](https://en.wikipedia.org/wiki/Vogon#Poetry)
