@@ -1,6 +1,6 @@
                                                            
 <html>                                                          
-	<img src="./images/vogon-poetry-v02.png" width="90%" align="center" alt="Vogon Poetry - Zero Copy data processing over Columnar layouts , © Shaurya Agarwal, 2025" />                                                          
+	<img src="./images/vogon-poetry-v03.png" width="90%" align="center" alt="Vogon Poetry - Zero Copy data processing over Columnar layouts , © Shaurya Agarwal, 2025" />                                                          
 </html>                                   
  
 
