@@ -34,8 +34,14 @@ concepts like zero-copy-columnar-layout-distributed-vectorized etc. that sound l
                                                                       
                                                                       
                                                                       
-# Refs:                          
+# Refs:      
+* [Apache Arrow Specifications](https://arrow.apache.org/docs/format/index.html#format)
+* [Apache Arrow on GitHub](https://github.com/apache/arrow)
+* [Apache Arrow Python Cookbook](https://arrow.apache.org/cookbook/py/index.html)         
+---       
+           
 * [Vogons](https://www.bbc.co.uk/cult/hitchhikers/guide/vogon.shtml) and [Vogon Poetry](https://en.wikipedia.org/wiki/Vogon#Poetry)                          
+* [Notable Vogons](https://hitchhikers.fandom.com/wiki/Vogon)    
 * [HHGTTG](https://en.wikipedia.org/wiki/The_Hitchhiker%27s_Guide_to_the_Galaxy)                          
                           
                             
