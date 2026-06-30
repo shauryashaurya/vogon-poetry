@@ -34,7 +34,6 @@ jobs:
 
       - run: npm run build
 
-      # Stage files to match the target URL structure
       - name: Structure Artifact
         run: |
           mkdir -p deploy_staging/vogon-poetry-concept-viewer
