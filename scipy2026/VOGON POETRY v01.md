@@ -62,6 +62,14 @@ You may now applaud.
 
 ---
 
+# Vogon Poetry - Interactive Explorer
+
+A static figure cannot convey the dependency structure that is the central claim of this work; the interactive form lets the reader trace those dependencies directly. The viewer and the underlying data are available online at [Vogon Poetry on GitHub](https://github.com/shauryashaurya/vogon-poetry), and readers are invited to explore the concepts there. The 80 concepts and their typed relationships are published as an interactive concept graph that accompanies this paper. The viewer renders the 8 families, 18 instincts, and their concept nodes as a force-directed graph in the browser, colored by family and clustered by instinct, with the cross-family edges that encode where one invariant constrains another drawn explicitly. Readers can switch between layouts, filter by family or link type, isolate a single instinct and expand its concepts into readable cards, and search for individual nodes. Each node exposes its definition, a worked example on the canonical schema, and its links to related concepts. 
+
+[images of the full graph available in the PDF]
+
+---
+
 # Family A. Mechanical Sympathy
 
 ## Instinct 1. Physical form dominates performance.
