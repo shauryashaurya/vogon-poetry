@@ -1,7 +1,19 @@
+name: Deploy Concept Viewer
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Set the default working directory for all 'run' commands
     defaults:
       run:
         working-directory: ./vogon-poetry-concept-viewer
@@ -10,9 +22,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 24 # Updated from 20 to resolve deprecation warnings
+          node-version: 24
           cache: npm
-          # Explicitly point to the lock file in the subdirectory
           cache-dependency-path: ./vogon-poetry-concept-viewer/package-lock.json
 
       - run: npm ci
@@ -21,5 +32,4 @@ jobs:
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          # Explicitly point to the build output in the subdirectory
           path: ./vogon-poetry-concept-viewer/dist
