@@ -327,7 +327,7 @@ export default function App ()
   return (
     <div className="app" style={ { '--bg': theme.bg, '--panel': theme.panel, '--text': theme.text, '--mut': theme.mut, '--accent': theme.accent, '--border': theme.nodeBorder } }>
       <aside className="rail">
-        <div className="brand"><div className="kicker">FORCE GRAPH (D3)</div><div className="title">VOGON POETRY</div><div className="sub">{ META.node_count } nodes, { META.instinct_count } instincts, { META.edge_count } edges</div></div>
+        <div className="brand"><div className="kicker">data engineering concepts with an eye for AI</div><div className="title">VOGON POETRY</div><div className="sub">{ META.node_count } nodes, { META.instinct_count } instincts, { META.edge_count } edges</div></div>
         <section><label className="lab">Theme</label><div className="seg">{ THEME_KEYS.map( ( k ) => <button key={ k } className={ themeKey === k ? 'on' : '' } onClick={ () => setThemeKey( k ) }>{ THEMES[ k ].name }</button> ) }</div></section>
         <section>
           <label className="lab">Layout suggestion</label>
