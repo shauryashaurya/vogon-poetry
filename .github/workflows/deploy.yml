@@ -1,34 +1,19 @@
-name: Deploy to GitHub Pages
-
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-    inputs:
-      reason:
-        description: "Why are you deploying manually?"
-        required: false
-        type: string
-
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: true
-
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Set the default working directory for all 'run' commands
+    defaults:
+      run:
+        working-directory: ./vogon-poetry-concept-viewer
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24 # Updated from 20 to resolve deprecation warnings
           cache: npm
+          # Explicitly point to the lock file in the subdirectory
+          cache-dependency-path: ./vogon-poetry-concept-viewer/package-lock.json
 
       - run: npm ci
 
@@ -36,14 +21,5 @@ jobs:
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+          # Explicitly point to the build output in the subdirectory
+          path: ./vogon-poetry-concept-viewer/dist
