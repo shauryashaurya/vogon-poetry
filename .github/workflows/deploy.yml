@@ -35,22 +35,33 @@ jobs:
         working-directory: ./vogon-poetry-concept-viewer
         run: npm run build
 
-      # renders the REST of the repo (markdown and html pages) into _site
       - uses: actions/configure-pages@v5
 
+      # container action: runs as root, so _site ends up owned by root
       - uses: actions/jekyll-build-pages@v1
         with:
           source: ./
           destination: ./_site
 
-      # overlay the built app into the subfolder the base path expects
+      # hand _site back to the runner user before any shell step touches it
+      - name: Take ownership of _site
+        run: sudo chown -R "$(id -u):$(id -g)" _site
+
       - name: Overlay app into site
         run: |
           rm -rf _site/vogon-poetry-concept-viewer
           mkdir -p _site/vogon-poetry-concept-viewer
           cp -r vogon-poetry-concept-viewer/dist/. _site/vogon-poetry-concept-viewer/
+
+      - name: Verify artifact
+        run: |
+          test -f _site/vogon-poetry-concept-viewer/index.html
+          test -d _site/vogon-poetry-concept-viewer/assets
+          grep -q "/vogon-poetry/vogon-poetry-concept-viewer/assets/" _site/vogon-poetry-concept-viewer/index.html
+          test ! -e _site/vogon-poetry-concept-viewer/src
+          test ! -e _site/vogon-poetry-concept-viewer/node_modules
           test -f _site/index.html || echo "WARNING: no site root index.html"
-          test -f _site/vogon-poetry-concept-viewer/index.html || exit 1
+          du -sh _site
 
       - uses: actions/upload-pages-artifact@v3
         with:

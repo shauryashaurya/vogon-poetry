@@ -1,3 +1,10 @@
+# Jekyll builds the rest of the site. The app folder is excluded here because it
+# contains source, node_modules and dist; the workflow overlays the BUILT app
+# into _site/vogon-poetry-concept-viewer/ after Jekyll runs.
+
 exclude:
   - vogon-poetry-concept-viewer
   - node_modules
+  - Gemfile
+  - Gemfile.lock
+  - vendor
