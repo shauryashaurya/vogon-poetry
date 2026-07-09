@@ -46,6 +46,34 @@ export const THEMES = {
     edge: { contains: '#e6dfca', related: '#93a1a1', crossFamily: '#073642', dependsOn: '#d33682' },
     familyColors: { A: '#268bd2', B: '#2aa198', C: '#6c71c4', D: '#cb4b16', E: '#859900', F: '#dc322f', G: '#b58900', H: '#d33682' },
   },
+  vogonsDark: {
+    name: 'VOGONS Dark',
+    bg: '#05080a', panel: '#0b1410', text: '#cfe7cf', mut: '#6f8f6f',
+    hub: '#9bdb3a', hubText: '#05080a', nodeBorder: '#05080a', accent: '#a4ff2e',
+    edge: { contains: '#1a2a14', related: '#3f5a2a', crossFamily: '#c7f24a', dependsOn: '#7dffb0' },
+    familyColors: { A: '#5ad1c8', B: '#9bdb3a', C: '#b07cff', D: '#ff9b3a', E: '#7ad14a', F: '#ff5a6a', G: '#e0d020', H: '#c7f24a' },
+  },
+  vogonsLight: {
+    name: 'VOGONS Light',
+    bg: '#eef2e6', panel: '#e2e8d2', text: '#2b3a1e', mut: '#6b7a53',
+    hub: '#4b6b1f', hubText: '#eef2e6', nodeBorder: '#cdd7b6', accent: '#6b8e23',
+    edge: { contains: '#cdd7b6', related: '#8a9a6b', crossFamily: '#3a4a1e', dependsOn: '#4b6b1f' },
+    familyColors: { A: '#4a8a80', B: '#6b8e23', C: '#7a5aa0', D: '#c07a2a', E: '#5a8a3a', F: '#b0433a', G: '#a08a20', H: '#7a9a3a' },
+  },
+  dontPanicDark: {
+    name: "DON'T PANIC Dark",
+    bg: '#04120a', panel: '#06210f', text: '#f7ff00', mut: '#8fbf6a',
+    hub: '#ff00d4', hubText: '#04120a', nodeBorder: '#00ffe0', accent: '#f7ff00', glow: true,
+    edge: { contains: '#1a5a2a', related: '#00e5ff', crossFamily: '#ff2d00', dependsOn: '#ff00d4' },
+    familyColors: { A: '#00e5ff', B: '#39ff14', C: '#c800ff', D: '#ff6a00', E: '#00ff87', F: '#ff003c', G: '#ffe600', H: '#ff00d4' },
+  },
+  dontPanicLight: {
+    name: "DON'T PANIC Light",
+    bg: '#fff200', panel: '#ffe100', text: '#000000', mut: '#5a5200',
+    hub: '#ff0090', hubText: '#ffffff', nodeBorder: '#00e5ff', accent: '#ff2d00', glow: true,
+    edge: { contains: '#c9a800', related: '#0066ff', crossFamily: '#ff2d00', dependsOn: '#c800ff' },
+    familyColors: { A: '#0066ff', B: '#00b83c', C: '#8c00ff', D: '#ff6a00', E: '#00a86b', F: '#e5002d', G: '#b58900', H: '#e5008c' },
+  },
 }
 
-export const THEME_KEYS = ['light', 'dark', 'print', 'neon', 'pastel', 'solar']
+export const THEME_KEYS = ['light', 'dark', 'print', 'neon', 'pastel', 'solar', 'vogonsDark', 'vogonsLight', 'dontPanicDark', 'dontPanicLight']

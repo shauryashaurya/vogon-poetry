@@ -3,12 +3,14 @@ import * as d3 from 'd3'
 import { buildGraph, dfsOrder, META, FAMILIES, INSTINCTS, EDGE_TYPES, ROOT, id } from './graph.js'
 import { THEMES, THEME_KEYS } from './themes.js'
 
-const FORCE0 = { charge: -300, linkDist: 55, linkStr: 0.5, gravity: 0.06, collide: 10, decay: 0.4, spread: 160 }
-const STYLE0 = { rConcept: 5, rHub: 8, rRoot: 12, border: 1, nodeOpacity: 1, wContains: 1.4, wRelated: 0.7, wCross: 0.9, wDepends: 1.1, edgeOpacity: 0.55, curve: 'curved', curveAmt: 0.35, arrow: true, crossDashed: false, dependsDashed: true }
-const FONT0 = { showLabels: true, size: 9, family: 'sans', weight: 'normal', halo: true }
+const FORCE0 = { charge: -1990, linkDist: 112, linkStr: 0.01, gravity: 0.23, collide: 10, decay: 0.4, spread: 160 }
+const STYLE0 = { rConcept: 14, rHub: 12.5, rRoot: 6, border: 0, nodeOpacity: 0.8, wContains: 4.9, wRelated: 0.7, wCross: 0.9, wDepends: 1.1, edgeOpacity: 0.6, curve: 'curved', curveAmt: 0.35, arrow: true, crossDashed: false, dependsDashed: true }
+const FONT0 = { showLabels: true, size: 12.5, family: 'sans', weight: 'bold', halo: true }
+const FIT_DELAY = 500
 const FF = { sans: 'ui-sans-serif, system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif', serif: 'Georgia, Cambria, Times New Roman, serif', mono: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' }
 const LAYOUTS = [ 'free', 'radial', 'breadthfirst', 'tree', 'depthfirst', 'grid' ]
 const TREEISH = ( l ) => l === 'radial' || l === 'breadthfirst' || l === 'tree' || l === 'depthfirst'
+const SETTLE_DELAY = 1000
 
 function Range ( { label, value, min, max, step, onChange, fmt } ) { return <label className="ctl"><span>{ label }<b>{ fmt ? fmt( value ) : value }</b></span><input type="range" min={ min } max={ max } step={ step } value={ value } onChange={ ( e ) => onChange( Number( e.target.value ) ) } /></label> }
 function Pick ( { label, value, options, onChange } ) { return <label className="ctl"><span>{ label }</span><select value={ value } onChange={ ( e ) => onChange( e.target.value ) }>{ options.map( ( o ) => <option key={ o } value={ o }>{ o }</option> ) }</select></label> }
@@ -33,9 +35,20 @@ export default function App ()
     return { slot, per }
   }, [ G, byId ] )
 
+  // per-concept slot within its parent instinct, used to fan leaves along the parent spoke
+  const cslot = useMemo( () =>
+  {
+    const groups = {}
+    G.nodes.forEach( ( n ) => { if ( n.kind === 'concept' ) ( groups[ n.instinct ] = groups[ n.instinct ] || [] ).push( n.id ) } )
+    const m = {}
+    Object.values( groups ).forEach( ( ids ) => ids.forEach( ( cid, i ) => { m[ cid ] = { idx: i, count: ids.length } } ) )
+    return m
+  }, [ G ] )
+
   const svgRef = useRef( null ), simRef = useRef( null ), zoomRef = useRef( null )
   const gViewRef = useRef( null ), gLinkRef = useRef( null ), gNodeRef = useRef( null ), gCardRef = useRef( null )
   const visRef = useRef( { ns: [], ls: [] } ), cardRef = useRef( null ), sizeRef = useRef( { w: 900, h: 700 } ), fnRef = useRef( {} )
+  const refitRef = useRef( null )
 
   const [ themeKey, setThemeKey ] = useState( 'light' )
   const [ layout, setLayout ] = useState( 'radial' )
@@ -48,10 +61,12 @@ export default function App ()
   const [ mode, setMode ] = useState( 'full' )
   const [ query, setQuery ] = useState( '' )
   const [ selected, setSelected ] = useState( null )
-  const [ insCollapsed, setInsCollapsed ] = useState( false )
+  const [ railOpen, setRailOpen ] = useState( () => ( typeof window !== 'undefined' ? window.innerWidth > 820 : true ) )
+  const [ insOpen, setInsOpen ] = useState( () => ( typeof window !== 'undefined' ? window.innerWidth > 820 : true ) )
   const [ cardsOn, setCardsOn ] = useState( false )
   const [ hiEdge, setHiEdge ] = useState( null )
   const [ scale, setScale ] = useState( 2 )
+  const [ fxOn, setFxOn ] = useState( false )
 
   const theme = THEMES[ themeKey ]
   const setFv = ( k, v ) => setF( ( p ) => ( { ...p, [ k ]: v } ) )
@@ -62,20 +77,46 @@ export default function App ()
   const nodeR = ( d ) => ( d.kind === 'root' ? S.rRoot : d.kind === 'instinct' ? S.rHub : S.rConcept )
   const nodeFill = ( d ) => ( d.kind === 'root' ? theme.accent : d.kind === 'instinct' ? theme.hub : theme.familyColors[ d.family ] )
   const labelLines = ( d ) => ( d.kind === 'concept' ? wrap( d.label, 16 ) : [ d.label ] )
+  // irregular alien polygon per concept, stable from id, used only in effects mode
+  const fxShape = ( d ) =>
+  {
+    const r = nodeR( d ) * 1.4, n = 5 + ( hashStr( d.id ) % 4 )
+    let p = ''
+    for ( let i = 0; i < n; i++ )
+    {
+      const a = ( 2 * Math.PI * i ) / n - Math.PI / 2
+      const jit = 0.6 + ( hashStr( d.id + ':' + i ) % 75 ) / 100
+      p += ( i ? 'L' : 'M' ) + ( Math.cos( a ) * r * jit ).toFixed( 1 ) + ',' + ( Math.sin( a ) * r * jit ).toFixed( 1 )
+    }
+    return p + 'Z'
+  }
   function collideR ( d )
   {
-    const base = nodeR( d ) + 3
+    const base = ( fxOn && d.kind === 'concept' ? nodeR( d ) * 1.4 : nodeR( d ) ) + 3
     if ( !Fn.showLabels && d.kind === 'concept' ) return Math.max( F.collide, base )
     const ls = labelLines( d ), w = Math.max( ...ls.map( ( l ) => l.length ) ) * Fn.size * 0.55, h = ( ls.length + 1 ) * ( Fn.size + 1 )
     return Math.max( F.collide, base, w / 2, h / 2 )
   }
-
+  // tear down everything the mount effect created; safe to call twice
+  function resetState ( timers )
+  {
+    ( timers || [] ).forEach( clearTimeout )
+    if ( simRef.current ) { simRef.current.stop(); simRef.current = null }
+    if ( svgRef.current ) d3.select( svgRef.current ).selectAll( '*' ).remove()
+    gLinkRef.current = gNodeRef.current = gViewRef.current = null
+    cardRef.current = null
+  }
+  // 
   useEffect( () =>
   {
+    resetState()
     const svg = d3.select( svgRef.current )
     sizeRef.current = { w: svgRef.current.clientWidth || 900, h: svgRef.current.clientHeight || 700 }
     const defs = svg.append( 'defs' )
     defs.append( 'marker' ).attr( 'id', 'arr' ).attr( 'viewBox', '0 -5 10 10' ).attr( 'refX', 9 ).attr( 'refY', 0 ).attr( 'markerWidth', 6 ).attr( 'markerHeight', 6 ).attr( 'orient', 'auto' ).append( 'path' ).attr( 'd', 'M0,-4L8,0L0,4' ).attr( 'class', 'arrhead' )
+    const gl = defs.append( 'filter' ).attr( 'id', 'glow' ).attr( 'x', '-60%' ).attr( 'y', '-60%' ).attr( 'width', '220%' ).attr( 'height', '220%' )
+    gl.append( 'feGaussianBlur' ).attr( 'stdDeviation', 2.5 ).attr( 'result', 'b' )
+    const gm = gl.append( 'feMerge' ); gm.append( 'feMergeNode' ).attr( 'in', 'b' ); gm.append( 'feMergeNode' ).attr( 'in', 'SourceGraphic' )
     const gv = svg.append( 'g' ); gViewRef.current = gv.node()
     gLinkRef.current = gv.append( 'g' ).node(); gNodeRef.current = gv.append( 'g' ).node(); gCardRef.current = gv.append( 'g' ).node()
     const zoom = d3.zoom().scaleExtent( [ 0.05, 6 ] ).on( 'zoom', ( e ) => gv.attr( 'transform', e.transform ) ); svg.call( zoom ); zoomRef.current = zoom
@@ -83,8 +124,19 @@ export default function App ()
     simRef.current = sim
     applyData(); applyForces(); applyStyles(); sim.alpha( 1 ).restart()
     const t = setTimeout( fit, 1000 )
-    const ro = new ResizeObserver( () => { const w = svgRef.current.clientWidth, h = svgRef.current.clientHeight; if ( w && h ) { sizeRef.current = { w, h }; applyForces(); sim.alpha( 0.2 ).restart() } } ); ro.observe( svgRef.current )
-    return () => { clearTimeout( t ); ro.disconnect(); sim.stop() }
+    let rt
+    const schedule = () => { const w = svgRef.current.clientWidth, h = svgRef.current.clientHeight; if ( !w || !h ) return; sizeRef.current = { w, h }; clearTimeout( rt ); rt = setTimeout( () => fnRef.current.reflow(), FIT_DELAY ) }
+    const ro = new ResizeObserver( schedule ); ro.observe( svgRef.current )
+    window.addEventListener( 'resize', schedule ); window.addEventListener( 'orientationchange', schedule )
+    // return () => { clearTimeout( t ); clearTimeout( rt ); ro.disconnect(); window.removeEventListener( 'resize', schedule ); window.removeEventListener( 'orientationchange', schedule ); sim.stop() }
+    return () =>
+    {
+      resetState( [ t, rt, refitRef.current ] );
+      ro.disconnect();
+      window.removeEventListener( 'resize', schedule );
+      window.removeEventListener( 'orientationchange', schedule );
+      sim.stop()
+    }
   }, [] )
 
   function drag ()
@@ -120,7 +172,7 @@ export default function App ()
     const { ns, ls } = visible(); visRef.current = { ns, ls }
     d3.select( gLinkRef.current ).selectAll( 'path.link' ).data( ls, ( d ) => d.id ).join( 'path' ).attr( 'class', 'link' ).attr( 'fill', 'none' )
     d3.select( gNodeRef.current ).selectAll( 'g.node' ).data( ns, ( d ) => d.id ).join(
-      ( en ) => { const g = en.append( 'g' ).attr( 'class', 'node' ); g.append( 'rect' ).attr( 'class', 'box' ).attr( 'rx', 4 ); g.append( 'circle' ).attr( 'class', 'dot' ); g.append( 'text' ).attr( 'class', 'lbl' ).attr( 'text-anchor', 'middle' ); g.on( 'click', ( e, d ) => fnRef.current.clickNode( d ) ).call( drag() ); return g },
+      ( en ) => { const g = en.append( 'g' ).attr( 'class', 'node' ); g.append( 'rect' ).attr( 'class', 'box' ).attr( 'rx', 4 ); g.append( 'circle' ).attr( 'class', 'dot' ); g.append( 'path' ).attr( 'class', 'shp' ); g.append( 'text' ).attr( 'class', 'lbl' ).attr( 'text-anchor', 'middle' ); g.on( 'click', ( e, d ) => fnRef.current.clickNode( d ) ).call( drag() ); return g },
       ( up ) => up, ( ex ) => ex.remove() )
     const sim = simRef.current; sim.nodes( ns ); sim.force( 'link' ).links( ls )
   }
@@ -138,13 +190,36 @@ export default function App ()
     sim.force( 'radial', null )
     if ( layout === 'radial' )
     {
-      const N = INSTINCTS.length, ang = ( d ) => ( 2 * Math.PI * ordIns[ d.id ] ) / N - Math.PI / 2
-      sim.force( 'radial', d3.forceRadial( ( d ) => d.depth * F.spread, cx, cy ).strength( 0.9 ) )
-      sim.force( 'x', d3.forceX( ( d ) => ( d.kind === 'instinct' ? cx + Math.cos( ang( d ) ) * F.spread : cx ) ).strength( ( d ) => ( d.kind === 'instinct' ? 0.6 : 0.02 ) ) )
-      sim.force( 'y', d3.forceY( ( d ) => ( d.kind === 'instinct' ? cy + Math.sin( ang( d ) ) * F.spread : cy ) ).strength( ( d ) => ( d.kind === 'instinct' ? 0.6 : 0.02 ) ) )
+      // instinct hubs sit on a ring by data order; each concept sits on its parent hub's spoke, fanned by sibling slot
+      const N = INSTINCTS.length, slice = ( 2 * Math.PI ) / N
+      const insAng = ( insId ) => ( 2 * Math.PI * ordIns[ insId ] ) / N - Math.PI / 2
+      const conAng = ( d ) =>
+      {
+        const s = cslot[ d.id ]; if ( !s ) return insAng( d.instinct )
+        const half = Math.max( 1, ( s.count - 1 ) / 2 ), fan = Math.min( slice * 0.7, 0.5 )
+        return insAng( d.instinct ) + fan * ( s.idx - ( s.count - 1 ) / 2 ) / half
+      }
+      const tx = ( d ) => d.kind === 'root' ? cx : d.kind === 'instinct' ? cx + Math.cos( insAng( d.id ) ) * F.spread : cx + Math.cos( conAng( d ) ) * 2 * F.spread
+      const ty = ( d ) => d.kind === 'root' ? cy : d.kind === 'instinct' ? cy + Math.sin( insAng( d.id ) ) * F.spread : cy + Math.sin( conAng( d ) ) * 2 * F.spread
+      const str = ( d ) => d.kind === 'root' ? 0.8 : d.kind === 'instinct' ? 0.6 : 0.4
+      sim.force( 'radial', d3.forceRadial( ( d ) => d.depth * F.spread, cx, cy ).strength( 0.55 ) )
+      sim.force( 'x', d3.forceX( tx ).strength( str ) )
+      sim.force( 'y', d3.forceY( ty ).strength( str ) )
     }
     else if ( layout === 'breadthfirst' ) { const g = F.spread / 8; sim.force( 'x', d3.forceX( ( d ) => cx + ( bfs.slot[ d.id ] - ( bfs.per[ d.depth ] - 1 ) / 2 ) * g ).strength( 0.7 ) ); sim.force( 'y', d3.forceY( ( d ) => cy + ( d.depth - 1 ) * F.spread ).strength( 0.95 ) ) }
-    else if ( layout === 'tree' ) { const N = INSTINCTS.length, g = F.spread / 1.5; sim.force( 'x', d3.forceX( ( d ) => ( d.kind === 'instinct' ? cx + ( ordIns[ d.id ] - ( N - 1 ) / 2 ) * g : cx ) ).strength( ( d ) => ( d.kind === 'instinct' ? 0.5 : 0.05 ) ) ); sim.force( 'y', d3.forceY( ( d ) => cy + ( d.depth - 1 ) * F.spread ).strength( 0.9 ) ) }
+    else if ( layout === 'tree' )
+    {
+      const N = INSTINCTS.length, g = F.spread / 1.5
+      const insX = ( insId ) => cx + ( ordIns[ insId ] - ( N - 1 ) / 2 ) * g
+      const tx = ( d ) =>
+      {
+        if ( d.kind !== 'concept' ) return d.kind === 'instinct' ? insX( d.id ) : cx
+        const s = cslot[ d.id ]; if ( !s ) return insX( d.instinct )
+        return insX( d.instinct ) + ( s.idx - ( s.count - 1 ) / 2 ) * ( g / Math.max( 4, s.count ) )
+      }
+      sim.force( 'x', d3.forceX( tx ).strength( ( d ) => d.kind === 'concept' ? 0.35 : d.kind === 'instinct' ? 0.5 : 0.3 ) )
+      sim.force( 'y', d3.forceY( ( d ) => cy + ( d.depth - 1 ) * F.spread ).strength( 0.9 ) )
+    }
     else if ( layout === 'depthfirst' ) { const n = G.nodes.length; sim.force( 'x', d3.forceX( ( d ) => cx + ( dfs[ d.id ] - n / 2 ) * ( F.spread / 14 ) ).strength( 0.6 ) ); sim.force( 'y', d3.forceY( ( d ) => cy + d.depth * F.spread ).strength( 0.9 ) ) }
     else if ( layout === 'grid' ) { gridPin( cx, cy ); sim.force( 'x', d3.forceX( cx ).strength( 0 ) ); sim.force( 'y', d3.forceY( cy ).strength( 0 ) ) }
     else { sim.force( 'x', d3.forceX( cx ).strength( F.gravity ) ); sim.force( 'y', d3.forceY( cy ).strength( F.gravity ) ) }
@@ -161,8 +236,19 @@ export default function App ()
   function pathFor ( d )
   {
     const x1 = d.source.x, y1 = d.source.y, x2 = d.target.x, y2 = d.target.y
-    if ( S.curve === 'straight' ) return `M${ x1 },${ y1 }L${ x2 },${ y2 }`
     const dx = x2 - x1, dy = y2 - y1, L = Math.hypot( dx, dy ) || 1
+    if ( fxOn )
+    {
+      const nx = -dy / L, ny = dx / L, segs = Math.max( 3, Math.min( 9, Math.round( L / 45 ) ) )
+      let p = `M${ x1 },${ y1 }`
+      for ( let i = 1; i < segs; i++ )
+      {
+        const t = i / segs, amp = ( hashStr( d.id + ':' + i ) % 2 ? 1 : -1 ) * Math.min( 12, L * 0.07 ) * ( i % 2 ? 1 : 0.5 )
+        p += `L${ ( x1 + dx * t + nx * amp ).toFixed( 1 ) },${ ( y1 + dy * t + ny * amp ).toFixed( 1 ) }`
+      }
+      return p + `L${ x2 },${ y2 }`
+    }
+    if ( S.curve === 'straight' ) return `M${ x1 },${ y1 }L${ x2 },${ y2 }`
     if ( d._cs === undefined ) d._cs = hashStr( d.id ) % 2 ? 1 : -1
     const k = S.curveAmt * Math.min( L * 0.35, 70 ) * d._cs
     const nx = -dy / L, ny = dx / L
@@ -173,7 +259,8 @@ export default function App ()
 
   function applyStyles ()
   {
-    d3.select( svgRef.current ).style( 'background', theme.bg )
+    d3.select( svgRef.current ).style( 'background', 'transparent' )
+    const glow = theme.glow || fxOn
     d3.select( gLinkRef.current ).selectAll( 'path.link' )
       .attr( 'stroke', ( d ) => ( d.type === 'contains' ? ( theme.familyColors[ ( byId[ id( d.target ) ] || {} ).family ] || theme.edge.contains ) : edgeColor( d.type ) ) )
       .attr( 'stroke-width', ( d ) => ewidth( d.type ) ).attr( 'stroke-opacity', ( d ) => ( d.type === 'cross-family' ? S.edgeOpacity * 0.7 : S.edgeOpacity ) )
@@ -183,7 +270,8 @@ export default function App ()
     const node = d3.select( gNodeRef.current ).selectAll( 'g.node' )
     node.style( 'cursor', ( d ) => ( d.kind === 'root' ? 'default' : 'pointer' ) )
     // leaf concepts: circle plus wrapped label below with halo (unchanged, looks good)
-    node.select( 'circle.dot' ).attr( 'display', ( d ) => ( d.kind === 'concept' ? null : 'none' ) ).attr( 'r', nodeR ).attr( 'fill', nodeFill ).attr( 'fill-opacity', S.nodeOpacity ).attr( 'stroke', theme.nodeBorder ).attr( 'stroke-width', S.border )
+    node.select( 'circle.dot' ).attr( 'display', ( d ) => ( d.kind === 'concept' && !fxOn ? null : 'none' ) ).attr( 'r', nodeR ).attr( 'fill', nodeFill ).attr( 'fill-opacity', S.nodeOpacity ).attr( 'stroke', theme.nodeBorder ).attr( 'stroke-width', glow ? Math.max( S.border, 2 ) : S.border ).attr( 'filter', glow ? 'url(#glow)' : null )
+    node.select( 'path.shp' ).attr( 'display', ( d ) => ( d.kind === 'concept' && fxOn ? null : 'none' ) ).attr( 'd', ( d ) => ( d.kind === 'concept' ? fxShape( d ) : null ) ).attr( 'fill', nodeFill ).attr( 'fill-opacity', S.nodeOpacity ).attr( 'stroke', theme.nodeBorder ).attr( 'stroke-width', glow ? Math.max( S.border, 2 ) : 1.5 ).attr( 'filter', glow ? 'url(#glow)' : null )
     node.select( 'text.lbl' )
       .attr( 'display', ( d ) => ( d.kind === 'concept' && !Fn.showLabels ? 'none' : null ) )
       .attr( 'fill', ( d ) => ( d.kind === 'instinct' ? theme.hubText : d.kind === 'root' ? theme.bg : theme.text ) )
@@ -202,7 +290,7 @@ export default function App ()
       if ( d.kind === 'concept' ) { box.attr( 'display', 'none' ); return }
       const bb = d3.select( this ).select( 'text.lbl' ).node().getBBox(), px = 9, py = 5
       box.attr( 'display', null ).attr( 'x', bb.x - px ).attr( 'y', bb.y - py ).attr( 'width', bb.width + px * 2 ).attr( 'height', bb.height + py * 2 )
-        .attr( 'fill', d.kind === 'root' ? theme.accent : theme.hub ).attr( 'stroke', theme.nodeBorder ).attr( 'stroke-width', S.border )
+        .attr( 'fill', d.kind === 'root' ? theme.accent : theme.hub ).attr( 'stroke', theme.nodeBorder ).attr( 'stroke-width', glow ? Math.max( S.border, 2 ) : S.border ).attr( 'filter', glow ? 'url(#glow)' : null )
     } )
   }
 
@@ -215,7 +303,7 @@ export default function App ()
 
   useEffect( () => { if ( simRef.current ) { applyData(); applyForces(); applyStyles(); simRef.current.alpha( 0.7 ).restart() } }, [ families, edges, showHubs, mode ] )
   useEffect( () => { if ( simRef.current ) { applyForces(); simRef.current.alpha( 0.85 ).restart() } }, [ layout, F ] )
-  useEffect( () => { if ( simRef.current ) { applyStyles(); fnRef.current.tick(); simRef.current.force( 'collide' ).radius( collideR ); simRef.current.alpha( 0.3 ).restart() } }, [ themeKey, S, Fn ] )
+  useEffect( () => { if ( simRef.current ) { applyStyles(); fnRef.current.tick(); simRef.current.force( 'collide' ).radius( collideR ); simRef.current.alpha( 0.3 ).restart() } }, [ themeKey, S, Fn, fxOn ] )
   // reset transient state when the layout changes so nothing stays frozen
   useEffect( () =>
   {
@@ -323,90 +411,104 @@ export default function App ()
   function resetAll () { setF( { ...FORCE0 } ); setS( { ...STYLE0 } ); setFn( { ...FONT0 } ) }
 
   fnRef.current.tick = tick; fnRef.current.clickNode = clickNode
+  // fnRef.current.reflow = () => { applyForces(); fit() }
+  fnRef.current.reflow = () => { applyForces(); simRef.current.alpha( 0.3 ).restart(); fit(); clearTimeout( refitRef.current ); refitRef.current = setTimeout( fit, SETTLE_DELAY ) }
 
   return (
-    <div className="app" style={ { '--bg': theme.bg, '--panel': theme.panel, '--text': theme.text, '--mut': theme.mut, '--accent': theme.accent, '--border': theme.nodeBorder } }>
-      <aside className="rail">
-        <div className="brand"><div className="kicker">data engineering concepts with an eye for AI</div><div className="title">VOGON POETRY</div><div className="sub">{ META.node_count } nodes, { META.instinct_count } instincts, { META.edge_count } edges</div></div>
-        <section><label className="lab">Theme</label><div className="seg">{ THEME_KEYS.map( ( k ) => <button key={ k } className={ themeKey === k ? 'on' : '' } onClick={ () => setThemeKey( k ) }>{ THEMES[ k ].name }</button> ) }</div></section>
-        <section>
-          <label className="lab">Layout suggestion</label>
-          <div className="seg">{ LAYOUTS.map( ( k ) => <button key={ k } className={ layout === k ? 'on' : '' } onClick={ () => setLayout( k ) }>{ k }</button> ) }</div>
-          <div className="seg" style={ { marginTop: 6 } }><button onClick={ reheat }>reheat</button><button onClick={ () => simRef.current.stop() }>freeze</button><button onClick={ unpin }>unpin</button><button onClick={ fit }>fit</button></div>
-          <div className="hint">Drag pins a node for hand-tuning; unpin releases all. Switching layout resets selection and pins. hhgttg (root) shows in radial / breadth-first / tree / depth-first.</div>
-        </section>
-        <section>
-          <label className="lab">Forces</label>
-          <Range label="repulsion (charge)" value={ F.charge } min={ -2000 } max={ -10 } step={ 10 } onChange={ ( v ) => setFv( 'charge', v ) } />
-          <Range label="link distance" value={ F.linkDist } min={ 10 } max={ 220 } step={ 2 } onChange={ ( v ) => setFv( 'linkDist', v ) } />
-          <Range label="link strength" value={ F.linkStr } min={ 0 } max={ 1 } step={ 0.05 } onChange={ ( v ) => setFv( 'linkStr', v ) } />
-          <Range label="gravity (center)" value={ F.gravity } min={ 0 } max={ 0.4 } step={ 0.01 } onChange={ ( v ) => setFv( 'gravity', v ) } />
-          <Range label="collision radius" value={ F.collide } min={ 0 } max={ 40 } step={ 1 } onChange={ ( v ) => setFv( 'collide', v ) } />
-          <Range label="velocity decay" value={ F.decay } min={ 0.1 } max={ 0.9 } step={ 0.05 } onChange={ ( v ) => setFv( 'decay', v ) } />
-          <Range label="ring / level spread" value={ F.spread } min={ 50 } max={ 400 } step={ 10 } onChange={ ( v ) => setFv( 'spread', v ) } />
-        </section>
-        <section>
-          <label className="lab">Nodes</label>
-          <Range label="concept size" value={ S.rConcept } min={ 1 } max={ 16 } step={ 0.5 } onChange={ ( v ) => setSv( 'rConcept', v ) } />
-          <Range label="hub size" value={ S.rHub } min={ 3 } max={ 22 } step={ 0.5 } onChange={ ( v ) => setSv( 'rHub', v ) } />
-          <Range label="root size" value={ S.rRoot } min={ 4 } max={ 26 } step={ 0.5 } onChange={ ( v ) => setSv( 'rRoot', v ) } />
-          <Range label="border" value={ S.border } min={ 0 } max={ 4 } step={ 0.5 } onChange={ ( v ) => setSv( 'border', v ) } />
-          <Range label="opacity" value={ S.nodeOpacity } min={ 0.2 } max={ 1 } step={ 0.05 } onChange={ ( v ) => setSv( 'nodeOpacity', v ) } />
-        </section>
-        <section>
-          <label className="lab">Connections</label>
-          <Pick label="curve" value={ S.curve } options={ [ 'curved', 'straight' ] } onChange={ ( v ) => setSv( 'curve', v ) } />
-          <Range label="curve amount" value={ S.curveAmt } min={ 0 } max={ 1 } step={ 0.05 } onChange={ ( v ) => setSv( 'curveAmt', v ) } />
-          <Range label="opacity" value={ S.edgeOpacity } min={ 0.05 } max={ 1 } step={ 0.05 } onChange={ ( v ) => setSv( 'edgeOpacity', v ) } />
-          <Range label="contains width" value={ S.wContains } min={ 0.2 } max={ 5 } step={ 0.1 } onChange={ ( v ) => setSv( 'wContains', v ) } />
-          <Range label="related width" value={ S.wRelated } min={ 0.2 } max={ 5 } step={ 0.1 } onChange={ ( v ) => setSv( 'wRelated', v ) } />
-          <Range label="cross-family width" value={ S.wCross } min={ 0.2 } max={ 5 } step={ 0.1 } onChange={ ( v ) => setSv( 'wCross', v ) } />
-          <Range label="depends-on width" value={ S.wDepends } min={ 0.2 } max={ 5 } step={ 0.1 } onChange={ ( v ) => setSv( 'wDepends', v ) } />
-          <Toggle label="arrowheads on depends-on" checked={ S.arrow } onChange={ ( v ) => setSv( 'arrow', v ) } />
-          <Toggle label="cross-family dashed" checked={ S.crossDashed } onChange={ ( v ) => setSv( 'crossDashed', v ) } />
-          <Toggle label="depends-on dashed" checked={ S.dependsDashed } onChange={ ( v ) => setSv( 'dependsDashed', v ) } />
-        </section>
-        <section>
-          <label className="lab">Fonts</label>
-          <Toggle label="show concept labels" checked={ Fn.showLabels } onChange={ ( v ) => setFnv( 'showLabels', v ) } />
-          <Pick label="family" value={ Fn.family } options={ [ 'sans', 'serif', 'mono' ] } onChange={ ( v ) => setFnv( 'family', v ) } />
-          <Pick label="weight" value={ Fn.weight } options={ [ 'normal', 'bold' ] } onChange={ ( v ) => setFnv( 'weight', v ) } />
-          <Range label="label size" value={ Fn.size } min={ 4 } max={ 20 } step={ 0.5 } onChange={ ( v ) => setFnv( 'size', v ) } />
-          <Toggle label="label halo" checked={ Fn.halo } onChange={ ( v ) => setFnv( 'halo', v ) } />
-        </section>
-        <section><label className="lab">Views</label><div className="seg"><button className={ mode === 'full' ? 'on' : '' } onClick={ () => preset( 'full' ) }>Full graph</button><button className={ mode === 'aizoom' ? 'on' : '' } onClick={ () => preset( 'aizoom' ) }>AI-for-data zoom</button></div></section>
-        <section><label className="lab">Families</label><div className="fams">{ FAMILIES.map( ( f ) => <button key={ f.id } className={ 'chip' + ( families.has( f.id ) && mode === 'full' ? ' on' : '' ) } onClick={ () => toggleFamily( f.id ) } title={ f.name }><span className="sw" style={ { background: theme.familyColors[ f.id ] } } /> { f.id } { f.name }</button> ) }</div></section>
-        <section><label className="lab">Edge types</label><div className="fams">{ EDGE_TYPES.map( ( t ) => <button key={ t } className={ 'chip' + ( edges.has( t ) ? ' on' : '' ) } onClick={ () => toggleEdge( t ) }>{ t }</button> ) }</div><Toggle label="show instinct hubs" checked={ showHubs } onChange={ setShowHubs } /></section>
-        <section><label className="lab">Search</label><form onSubmit={ doSearch } className="searchrow"><input value={ query } onChange={ ( e ) => setQuery( e.target.value ) } placeholder="node name" /><button type="submit" className="seg">Find</button></form></section>
-        <section>
-          <label className="lab">Export</label>
-          <div className="seg">{ [ 1, 2, 3, 4 ].map( ( s ) => <button key={ s } className={ scale === s ? 'on' : '' } onClick={ () => setScale( s ) }>{ s }x</button> ) }</div>
-          <div className="seg" style={ { marginTop: 6 } }><button onClick={ exportPNG }>PNG</button><button onClick={ exportSVG }>SVG</button></div>
-          <button onClick={ resetAll } style={ { marginTop: 8 } } className="seg">Reset styling</button>
-        </section>
-      </aside>
+    <div className={ 'app' + ( railOpen ? ' rail-open' : '' ) + ( insOpen ? ' ins-open' : '' ) } style={ { '--bg': theme.bg, '--panel': theme.panel, '--text': theme.text, '--mut': theme.mut, '--accent': theme.accent, '--border': theme.nodeBorder } }>
+      <header className="topbar">
+        <div className="brandmini">VOGON POETRY</div>
+        <div className="tbtns">
+          <button className={ railOpen ? 'on' : '' } onClick={ () => setRailOpen( ( v ) => !v ) }>Controls</button>
+          <button className={ insOpen ? 'on' : '' } onClick={ () => setInsOpen( ( v ) => !v ) }>Instincts</button>
+          <button onClick={ fit }>fit</button>
+          <button onClick={ seeAll }>see all</button>
+        </div>
+      </header>
+      <div className="body">
+        <aside className="rail">
+          <div className="brand"><div className="kicker">data engineering with an eye for AI</div><div className="title">VOGON POETRY</div><div className="sub">{ META.node_count } nodes, { META.instinct_count } instincts, { META.edge_count } edges</div></div>
+          <section><label className="lab">Views</label><div className="seg"><button className={ mode === 'full' ? 'on' : '' } onClick={ () => preset( 'full' ) }>Full graph</button><button className={ mode === 'aizoom' ? 'on' : '' } onClick={ () => preset( 'aizoom' ) }>AI-for-data zoom</button></div></section>
+          <section><label className="lab">Families</label><div className="fams">{ FAMILIES.map( ( f ) => <button key={ f.id } className={ 'chip' + ( families.has( f.id ) && mode === 'full' ? ' on' : '' ) } onClick={ () => toggleFamily( f.id ) } title={ f.name }><span className="sw" style={ { background: theme.familyColors[ f.id ] } } /> { f.id } { f.name }</button> ) }</div></section>
+          <section><label className="lab">Edge types</label><div className="fams">{ EDGE_TYPES.map( ( t ) => <button key={ t } className={ 'chip' + ( edges.has( t ) ? ' on' : '' ) } onClick={ () => toggleEdge( t ) }>{ t }</button> ) }</div><Toggle label="show instinct hubs" checked={ showHubs } onChange={ setShowHubs } /></section>
+          <section><label className="lab">Search</label><form onSubmit={ doSearch } className="searchrow"><input value={ query } onChange={ ( e ) => setQuery( e.target.value ) } placeholder="node name" /><button type="submit" className="seg">Find</button></form></section>
+          {/* <section><label className="lab">Theme</label><div className="seg">{ THEME_KEYS.map( ( k ) => <button key={ k } className={ themeKey === k ? 'on' : '' } onClick={ () => setThemeKey( k ) }>{ THEMES[ k ].name }</button> ) }</div></section> */ }
+          <section><label className="lab">Theme</label><div className="seg">{ THEME_KEYS.map( ( k ) => <button key={ k } className={ themeKey === k ? 'on' : '' } onClick={ () => setThemeKey( k ) }>{ THEMES[ k ].name }</button> ) }</div><div className="seg" style={ { marginTop: 6 } }><button className={ fxOn ? 'on' : '' } onClick={ () => setFxOn( !fxOn ) }>with a few pan galactic gargle blasters...</button></div></section>
+          <section>
+            <label className="lab">Layout suggestion</label>
+            <div className="seg">{ LAYOUTS.map( ( k ) => <button key={ k } className={ layout === k ? 'on' : '' } onClick={ () => setLayout( k ) }>{ k }</button> ) }</div>
+            <div className="seg" style={ { marginTop: 6 } }><button onClick={ reheat }>reheat</button><button onClick={ () => simRef.current.stop() }>freeze</button><button onClick={ unpin }>unpin</button><button onClick={ fit }>fit</button></div>
+            <div className="hint">Drag pins a node for hand-tuning; unpin releases all. Switching layout resets selection and pins. hhgttg (root) shows in radial / breadth-first / tree / depth-first.</div>
+          </section>
+          <section>
+            <label className="lab">Export</label>
+            <div className="seg">{ [ 1, 2, 3, 4 ].map( ( s ) => <button key={ s } className={ scale === s ? 'on' : '' } onClick={ () => setScale( s ) }>{ s }x</button> ) }</div>
+            <div className="seg" style={ { marginTop: 6 } }><button onClick={ exportPNG }>PNG</button><button onClick={ exportSVG }>SVG</button></div>
+            <button onClick={ resetAll } style={ { marginTop: 8 } } className="seg">Reset styling</button>
+          </section>
+          <section>
+            <label className="lab">Forces</label>
+            <Range label="repulsion (charge)" value={ F.charge } min={ -2000 } max={ -10 } step={ 10 } onChange={ ( v ) => setFv( 'charge', v ) } />
+            <Range label="link distance" value={ F.linkDist } min={ 10 } max={ 220 } step={ 2 } onChange={ ( v ) => setFv( 'linkDist', v ) } />
+            <Range label="link strength" value={ F.linkStr } min={ 0 } max={ 1 } step={ 0.05 } onChange={ ( v ) => setFv( 'linkStr', v ) } />
+            <Range label="gravity (center)" value={ F.gravity } min={ 0 } max={ 0.4 } step={ 0.01 } onChange={ ( v ) => setFv( 'gravity', v ) } />
+            <Range label="collision radius" value={ F.collide } min={ 0 } max={ 40 } step={ 1 } onChange={ ( v ) => setFv( 'collide', v ) } />
+            <Range label="velocity decay" value={ F.decay } min={ 0.1 } max={ 0.9 } step={ 0.05 } onChange={ ( v ) => setFv( 'decay', v ) } />
+            <Range label="ring / level spread" value={ F.spread } min={ 50 } max={ 400 } step={ 10 } onChange={ ( v ) => setFv( 'spread', v ) } />
+          </section>
+          <section>
+            <label className="lab">Nodes</label>
+            <Range label="concept size" value={ S.rConcept } min={ 1 } max={ 16 } step={ 0.5 } onChange={ ( v ) => setSv( 'rConcept', v ) } />
+            <Range label="hub size" value={ S.rHub } min={ 3 } max={ 22 } step={ 0.5 } onChange={ ( v ) => setSv( 'rHub', v ) } />
+            <Range label="root size" value={ S.rRoot } min={ 4 } max={ 26 } step={ 0.5 } onChange={ ( v ) => setSv( 'rRoot', v ) } />
+            <Range label="border" value={ S.border } min={ 0 } max={ 4 } step={ 0.5 } onChange={ ( v ) => setSv( 'border', v ) } />
+            <Range label="opacity" value={ S.nodeOpacity } min={ 0.2 } max={ 1 } step={ 0.05 } onChange={ ( v ) => setSv( 'nodeOpacity', v ) } />
+          </section>
+          <section>
+            <label className="lab">Connections</label>
+            <Pick label="curve" value={ S.curve } options={ [ 'curved', 'straight' ] } onChange={ ( v ) => setSv( 'curve', v ) } />
+            <Range label="curve amount" value={ S.curveAmt } min={ 0 } max={ 1 } step={ 0.05 } onChange={ ( v ) => setSv( 'curveAmt', v ) } />
+            <Range label="opacity" value={ S.edgeOpacity } min={ 0.05 } max={ 1 } step={ 0.05 } onChange={ ( v ) => setSv( 'edgeOpacity', v ) } />
+            <Range label="contains width" value={ S.wContains } min={ 0.2 } max={ 5 } step={ 0.1 } onChange={ ( v ) => setSv( 'wContains', v ) } />
+            <Range label="related width" value={ S.wRelated } min={ 0.2 } max={ 5 } step={ 0.1 } onChange={ ( v ) => setSv( 'wRelated', v ) } />
+            <Range label="cross-family width" value={ S.wCross } min={ 0.2 } max={ 5 } step={ 0.1 } onChange={ ( v ) => setSv( 'wCross', v ) } />
+            <Range label="depends-on width" value={ S.wDepends } min={ 0.2 } max={ 5 } step={ 0.1 } onChange={ ( v ) => setSv( 'wDepends', v ) } />
+            <Toggle label="arrowheads on depends-on" checked={ S.arrow } onChange={ ( v ) => setSv( 'arrow', v ) } />
+            <Toggle label="cross-family dashed" checked={ S.crossDashed } onChange={ ( v ) => setSv( 'crossDashed', v ) } />
+            <Toggle label="depends-on dashed" checked={ S.dependsDashed } onChange={ ( v ) => setSv( 'dependsDashed', v ) } />
+          </section>
+          <section>
+            <label className="lab">Fonts</label>
+            <Toggle label="show concept labels" checked={ Fn.showLabels } onChange={ ( v ) => setFnv( 'showLabels', v ) } />
+            <Pick label="family" value={ Fn.family } options={ [ 'sans', 'serif', 'mono' ] } onChange={ ( v ) => setFnv( 'family', v ) } />
+            <Pick label="weight" value={ Fn.weight } options={ [ 'normal', 'bold' ] } onChange={ ( v ) => setFnv( 'weight', v ) } />
+            <Range label="label size" value={ Fn.size } min={ 4 } max={ 20 } step={ 0.5 } onChange={ ( v ) => setFnv( 'size', v ) } />
+            <Toggle label="label halo" checked={ Fn.halo } onChange={ ( v ) => setFnv( 'halo', v ) } />
+          </section>
+        </aside>
 
-      <main className="stage">
-        <svg ref={ svgRef } className="cy" style={ { background: theme.bg } } />
-        <div className={ 'ipanel' + ( insCollapsed ? ' col' : '' ) }>
-          <div className="ihead" onClick={ () => setInsCollapsed( !insCollapsed ) }><span>INSTINCTS</span><button>{ insCollapsed ? 'show' : 'hide' }</button></div>
-          { !insCollapsed && (
-            <>
+        <main className="stage">
+          { fxOn && <div className="slime" aria-hidden="true" /> }
+          <svg ref={ svgRef } className="cy" />
+          { insOpen && (
+            <div className="ipanel">
+              <div className="ihead"><span>INSTINCTS</span><button onClick={ () => setInsOpen( false ) }>close</button></div>
               <div className="ibar"><button onClick={ seeAll }>see all</button><button onClick={ toggleCards } disabled={ !( selected && selected.kind === 'instinct' ) }>{ cardsOn ? 'hide cards' : 'toggle cards' }</button></div>
               <div className="ileg" onMouseLeave={ restoreHighlight }>{ EDGE_TYPES.map( ( t ) => <button key={ t } className={ 'lrow' + ( hiEdge === t ? ' on' : '' ) } onMouseEnter={ () => highlightEdgeType( t ) } onClick={ () => { const nx = hiEdge === t ? null : t; setHiEdge( nx ); nx ? highlightEdgeType( nx ) : clearFade() } }><span className="ln" style={ { background: edgeColor( t ) } } />{ t }</button> ) }</div>
               <div className="ilist" onMouseLeave={ restoreHighlight }>{ INSTINCTS.map( ( s ) => <button key={ s.id } className="irow" onMouseEnter={ () => highlightInstinct( s.id ) } onClick={ () => focusInstinct( s.id ) }><span className="sw" style={ { background: theme.familyColors[ s.family ] } } /><b>{ s.num }</b><span className="it">{ s.title }</span></button> ) }</div>
-            </>
+            </div>
           ) }
-        </div>
-        { selected && (
-          <div className="panel">
-            <button className="close" onClick={ () => { setSelected( null ); clearFade() } }>close</button>
-            { selected.kind === 'concept'
-              ? <div><div className="ptag" style={ { background: theme.familyColors[ selected.family ] } }>{ selected.family } { famName[ selected.family ] } - Instinct { selected.instinct_num }</div><h2>{ selected.name }</h2><div className="field"><span>What</span><p>{ selected.what }</p></div><div className="field"><span>Analogy</span><p>{ selected.analogy }</p></div><div className="field"><span>Code ({ selected.code.lang })</span><pre>{ selected.code.text }</pre></div>{ selected.related.length ? <div className="field"><span>Related</span><div className="tags">{ selected.related.map( ( r, i ) => <em key={ i }>{ r }</em> ) }</div></div> : null }</div>
-              : <div><div className="ptag" style={ { background: theme.familyColors[ selected.family ] } }>{ selected.label } hub - { famName[ selected.family ] }</div><h2>{ selected.title }</h2><p className="framing">{ selected.framing }</p></div> }
-          </div>
-        ) }
-      </main>
+          { selected && (
+            <div className="panel">
+              <button className="close" onClick={ () => { setSelected( null ); clearFade() } }>close</button>
+              { selected.kind === 'concept'
+                ? <div><div className="ptag" style={ { background: theme.familyColors[ selected.family ] } }>{ selected.family } { famName[ selected.family ] } - Instinct { selected.instinct_num }</div><h2>{ selected.name }</h2><div className="field"><span>What</span><p>{ selected.what }</p></div><div className="field"><span>Analogy</span><p>{ selected.analogy }</p></div>{ selected.differentiator ? <div className="field"><span>Differentiator</span><p>{ selected.differentiator }</p></div> : null }{ selected.decisions ? <div className="field"><span>Better decisions</span><p>{ selected.decisions }</p></div> : null }{ selected.ai_agentic ? <div className="field"><span>In the age of AI and agents</span><p>{ selected.ai_agentic }</p></div> : null }<div className="field"><span>Code ({ selected.code.lang })</span><pre>{ selected.code.text }</pre></div>{ selected.related.length ? <div className="field"><span>Related</span><div className="tags">{ selected.related.map( ( r, i ) => <em key={ i }>{ r }</em> ) }</div></div> : null }</div>
+                : <div><div className="ptag" style={ { background: theme.familyColors[ selected.family ] } }>{ selected.label } hub - { famName[ selected.family ] }</div><h2>{ selected.title }</h2><p className="framing">{ selected.framing }</p></div> }
+            </div>
+          ) }
+        </main>
+      </div>
+      <div className="scrim" onClick={ () => { setRailOpen( false ); setInsOpen( false ) } } />
     </div>
   )
 }
