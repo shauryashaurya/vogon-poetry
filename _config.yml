@@ -1,0 +1,3 @@
+exclude:
+  - vogon-poetry-concept-viewer
+  - node_modules
